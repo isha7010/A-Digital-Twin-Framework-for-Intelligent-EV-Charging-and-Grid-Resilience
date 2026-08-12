@@ -1,0 +1,15 @@
+# Core simulation (ev_digital_twin/, main.py) has no dependencies beyond
+# the standard library. The dashboard needs these:
+streamlit
+pandas
+matplotlib
+
+# Add these when you get to the corresponding roadmap phase:
+#
+# numpy          # PSO / NSGA-II vectorized operations
+# pymoo          # NSGA-II reference implementation (optional, or hand-roll it)
+# scikit-learn   # Isolation Forest / One-Class SVM anomaly detection
+# gymnasium      # RL environment interface
+# stable-baselines3   # RL algorithms (PPO/DQN) for the adaptive controller
+# paho-mqtt      # if you wire up a real MQTT broker instead of the in-process simulator
+# pytest         # test runner
