@@ -22,6 +22,8 @@ from ev_digital_twin.simulation import Simulation
 from ev_digital_twin.baseline_controller import (
     UncontrolledController,
     EarliestDeadlineFirstController,
+    PSOController,
+    NSGAIIController,
 )
 
 GREEN_DARK = "#173404"
@@ -33,6 +35,8 @@ GREEN_BG = "#EAF3DE"
 CONTROLLERS = {
     "uncontrolled": UncontrolledController,
     "edf": EarliestDeadlineFirstController,
+    "pso": PSOController,
+    "nsga2": NSGAIIController,
 }
 
 st.set_page_config(page_title="EV Digital Twin Dashboard", layout="wide")

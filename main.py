@@ -19,16 +19,21 @@ import csv
 import os
 
 from ev_digital_twin.config import SimulationConfig
+from ev_digital_twin.scenarios import build_config
 from ev_digital_twin.simulation import Simulation
 from ev_digital_twin.baseline_controller import (
     UncontrolledController,
     EarliestDeadlineFirstController,
+    PSOController,
+    NSGAIIController,
 )
 
 
 CONTROLLERS = {
     "uncontrolled": UncontrolledController,
     "edf": EarliestDeadlineFirstController,
+    "pso": PSOController,
+    "nsga2": NSGAIIController,
 }
 
 
@@ -41,6 +46,28 @@ def parse_args():
     p.add_argument("--out", type=str, default="outputs/metrics.csv")
     p.add_argument("--verbose", action="store_true")
     return p.parse_args()
+
+
+def run_scenario_comparison(controller_names, scenario_names, base_num_evs=50, horizon_hours=24):
+    rows = []
+    for scenario_name in scenario_names:
+        cfg = build_config(scenario_name, base_num_evs=base_num_evs, seed=42)
+        cfg.horizon_hours = horizon_hours
+        for controller_name in controller_names:
+            controller = CONTROLLERS[controller_name]()
+            sim = Simulation(cfg, controller)
+            summary = sim.run(verbose=False)
+            row = {
+                "scenario": scenario_name,
+                "controller": controller.name,
+                "total_electricity_cost_usd": summary.get("total_electricity_cost_usd", 0.0),
+                "total_carbon_emissions_kg": summary.get("total_carbon_emissions_kg", 0.0),
+                "peak_grid_load_mw": summary.get("peak_grid_load_mw", 0.0),
+                "steps_over_capacity": summary.get("steps_over_capacity", 0),
+                "pct_evs_met_required_soc": summary.get("pct_evs_met_required_soc", 0.0),
+            }
+            rows.append(row)
+    return rows
 
 
 def main():

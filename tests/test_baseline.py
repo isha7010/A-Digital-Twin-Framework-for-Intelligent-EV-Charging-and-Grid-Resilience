@@ -7,7 +7,10 @@ from ev_digital_twin.simulation import Simulation
 from ev_digital_twin.baseline_controller import (
     UncontrolledController,
     EarliestDeadlineFirstController,
+    PSOController,
+    NSGAIIController,
 )
+from main import run_scenario_comparison
 
 
 def make_cfg():
@@ -48,8 +51,49 @@ def test_ev_soc_never_exceeds_bounds():
         assert 0.0 <= record["final_soc"] <= 1.0
 
 
+def test_pso_controller_runs_and_returns_decisions():
+    cfg = make_cfg()
+    sim = Simulation(cfg, PSOController())
+    summary = sim.run()
+    assert summary["evs_departed"] >= 0
+    assert "total_electricity_cost_usd" in summary
+    assert summary["total_electricity_cost_usd"] >= 0
+
+
+def test_nsga2_controller_runs_and_returns_decisions():
+    cfg = make_cfg()
+    sim = Simulation(cfg, NSGAIIController())
+    summary = sim.run()
+    assert summary["evs_departed"] >= 0
+    assert "peak_grid_load_mw" in summary
+    assert summary["peak_grid_load_mw"] >= 0
+
+
+def test_pso_controller_accepts_weighted_objective():
+    cfg = make_cfg()
+    sim = Simulation(cfg, PSOController(weights={"cost": 0.5, "carbon": 0.3, "overload": 1.5, "soc": 2.0}))
+    summary = sim.run()
+    assert summary["total_electricity_cost_usd"] >= 0
+    assert len(sim.controller.history) > 0
+
+
+def test_run_scenario_comparison_returns_table():
+    table = run_scenario_comparison(
+        controller_names=["uncontrolled", "edf"],
+        scenario_names=["normal", "grid_constraint"],
+        base_num_evs=20,
+        horizon_hours=6,
+    )
+    assert len(table) > 0
+    assert "scenario" in table[0]
+
+
 if __name__ == "__main__":
     test_uncontrolled_runs_and_produces_metrics()
     test_edf_respects_grid_capacity_more_than_uncontrolled()
     test_ev_soc_never_exceeds_bounds()
+    test_pso_controller_runs_and_returns_decisions()
+    test_nsga2_controller_runs_and_returns_decisions()
+    test_pso_controller_accepts_weighted_objective()
+    test_run_scenario_comparison_returns_table()
     print("All tests passed.")
