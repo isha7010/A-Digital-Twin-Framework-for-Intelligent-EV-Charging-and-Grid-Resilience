@@ -18,11 +18,11 @@ Completed phases:
 - Phase 2: Baseline controller + closed-loop simulation + metrics
 - Phase 3: PSO controller prototype
 - Phase 4: NSGA-II multi-objective controller prototype
+- Phase 5: hybrid PSO-NSGA-II controller prototype
+- Phase 6: scenario/stress engine
+- Phase 7: telemetry anomaly/security layer
 
 In progress / next up:
-- Phase 5: hybrid PSO-NSGA-II
-- Phase 6: scenario/stress engine
-- Phase 7: anomaly/security layer
 - Phase 8: V2G / multi-agent coordination
 - Phase 9: RL controller
 - Phase 10: final polished dashboard and deployment workflow
@@ -40,7 +40,8 @@ comparison-capable controller logic.
 | `ev_digital_twin/grid.py` | 5.3 / 5.4 | Base load curve, solar curve, TOU pricing, carbon intensity |
 | `ev_digital_twin/digital_twin.py` | 4 / 5 | Ties state together: arrivals, connections, stepping, departures |
 | `ev_digital_twin/telemetry.py` | 6 | Simulated IoT messages with configurable noise/dropout |
-| `ev_digital_twin/baseline_controller.py` | 21 + optimizer extensions | `UncontrolledController`, `EarliestDeadlineFirstController`, `PSOController`, `NSGAIIController` |
+| `ev_digital_twin/security.py` | 7 | Telemetry validation, anomaly alerts, and attack simulation hooks |
+| `ev_digital_twin/baseline_controller.py` | 21 + optimizer extensions | `UncontrolledController`, `EarliestDeadlineFirstController`, `PSOController`, `NSGAIIController`, `HybridPSONSGAIIController` |
 | `ev_digital_twin/metrics.py` | 18 (subset) | Cost, carbon, peak load, capacity violations, SOC compliance |
 | `ev_digital_twin/simulation.py` | 15 | The closed-loop simulation runner |
 | `ev_digital_twin/scenarios.py` | 14 | Scenario presets + random input generator (no real dataset yet) |
@@ -81,7 +82,8 @@ sidebar you can:
   inputs to exercise the pipeline.
 - **Set inputs manually** — pick a scenario, EV count, horizon and
   seed by hand.
-- **Compare controllers** — select `uncontrolled` and/or `edf`; the
+- **Compare controllers** — select one or more controllers, including
+  `pso`, `nsga2`, and `hybrid_pso_nsga2`; the
   dashboard runs the simulation for each and shows side-by-side
   summary cards, a grid-load-over-time chart, a price/carbon-intensity
   chart, and a metrics table.
@@ -107,6 +109,32 @@ python tests/test_baseline.py
 # or, if you install pytest:
 pytest tests/
 ```
+
+Run a repeatable Phase 6 stress sweep across scenarios, controllers, and
+seeds:
+
+```bash
+python main.py --scenarios normal ev_surge grid_constraint combined_stress \
+  --controllers edf hybrid_pso_nsga2 --seeds 42 43 44 \
+  --evs 50 --hours 24 --out outputs/stress_sweep.csv
+```
+
+The sweep writes one row per scenario/controller/seed combination, making
+results directly comparable across demand surges, renewable reductions,
+charger outages, and grid constraints.
+
+Telemetry security can be exercised during either a single run or a sweep:
+
+```bash
+python main.py --controller edf --evs 30 --hours 6 \
+  --attack-type power_spike --attack-probability 0.25 \
+  --out outputs/security_metrics.csv
+```
+
+Supported attack hooks are `soc_spoof`, `power_spike`, `grid_load_spoof`,
+and `replay`. Attacks are disabled by default. Security summaries include
+total and high-severity telemetry alerts; use `--disable-security` to turn
+validation off for a controlled comparison.
 
 ## Design notes
 
@@ -157,18 +185,24 @@ pytest tests/
 - simulation-ready controller interface
 - baseline compatibility and test coverage
 
-### Phase 5 — Hybrid PSO–NSGA-II: pending
-- combine PSO exploration with NSGA-II ranking and selection
-- stronger multi-objective optimization loop
+### Phase 5 — Hybrid PSO–NSGA-II: completed prototype
+- PSO velocity updates for candidate exploration
+- Pareto dominance and crowding-distance selection
+- grid-capacity-normalized charging decisions
+- CLI, dashboard, and scenario-comparison registration
 
-### Phase 6 — Scenario/stress engine: pending
-- richer scenario presets and stress sweeps
-- multi-scenario benchmark runs
-- controller comparison across grid and demand disruptions
+### Phase 6 — Scenario/stress engine: completed prototype
+- scenario presets for demand, renewable, charger, and grid disruptions
+- repeatable multi-scenario benchmark runs across configurable seeds
+- controller comparison across grid and demand stress cases
+- CSV export through the CLI stress-sweep mode
 
-### Phase 7 — Anomaly/security layer: pending
-- telemetry validation and anomaly detection
-- attack simulation hooks and alerting
+### Phase 7 — Anomaly/security layer: completed prototype
+- schema and range validation for simulated IoT telemetry
+- temporal SOC-jump anomaly detection
+- configurable SOC spoofing, power spike, grid-load spoofing, and replay hooks
+- structured alert logs and total/high-severity summary metrics
+- CLI support for security experiments and controlled validation-off runs
 
 ### Phase 8 — V2G / multi-agent: pending
 - bidirectional charging coordination
@@ -183,6 +217,5 @@ pytest tests/
 
 ## Recommended next milestone
 
-The next practical milestone is to integrate a hybrid PSO–NSGA-II
-controller and expand the scenario comparison framework so each
-controller can be evaluated across stress cases in a repeatable way.
+The next practical milestone is Phase 8: add bidirectional V2G charging
+and multi-agent coordination.

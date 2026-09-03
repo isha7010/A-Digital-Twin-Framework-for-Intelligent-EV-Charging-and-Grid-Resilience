@@ -287,3 +287,149 @@ class NSGAIIController:
 
         best = min(population, key=lambda p: sum(p["objective"]))
         return {ev.ev_id: best["values"][idx] for idx, ev in enumerate(active)}
+
+
+class HybridPSONSGAIIController:
+    """Combine PSO exploration with NSGA-II selection for each step.
+
+    PSO updates move candidates toward their personal and global bests;
+    Pareto ranking and crowding distance preserve diverse trade-offs.
+    """
+
+    name = "hybrid_pso_nsga2"
+
+    def __init__(self, population_size: int = 10, generations: int = 5,
+                 inertia: float = 0.7, cognitive: float = 1.4,
+                 social: float = 1.6, seed: int = None):
+        self.population_size = max(2, population_size)
+        self.generations = max(1, generations)
+        self.inertia = inertia
+        self.cognitive = cognitive
+        self.social = social
+        self.rng = random.Random(seed)
+        self.history = []
+
+    def _objective_vector(self, twin, decisions, active):
+        total_load_mw = twin.grid.base_load_mw
+        total_cost = 0.0
+        total_carbon = 0.0
+        unmet_soc = 0.0
+        for ev in active:
+            power_kw = max(0.0, decisions.get(ev.ev_id, 0.0))
+            total_load_mw += power_kw / 1000.0
+            total_cost += power_kw * twin.dt_hours * twin.grid.current_price
+            total_carbon += power_kw * twin.dt_hours * twin.grid.carbon_intensity
+            unmet_soc += max(0.0, ev.energy_needed_kwh() - power_kw * twin.dt_hours * ev.efficiency)
+        return [total_cost, total_carbon,
+                max(0.0, total_load_mw - twin.grid.capacity_mw), unmet_soc]
+
+    @staticmethod
+    def _dominates(first, second):
+        return (all(a <= b for a, b in zip(first, second))
+                and any(a < b for a, b in zip(first, second)))
+
+    def _fronts(self, population):
+        fronts = []
+        remaining = list(population)
+        while remaining:
+            front = [candidate for candidate in remaining
+                     if not any(self._dominates(other["objective"], candidate["objective"])
+                                for other in remaining if other is not candidate)]
+            fronts.append(front)
+            remaining = [candidate for candidate in remaining if candidate not in front]
+        return fronts
+
+    def _crowding_distance(self, front):
+        distances = {id(candidate): 0.0 for candidate in front}
+        if len(front) <= 2:
+            return {id(candidate): float("inf") for candidate in front}
+        for objective_index in range(4):
+            ordered = sorted(front, key=lambda candidate: candidate["objective"][objective_index])
+            distances[id(ordered[0])] = float("inf")
+            distances[id(ordered[-1])] = float("inf")
+            low = ordered[0]["objective"][objective_index]
+            high = ordered[-1]["objective"][objective_index]
+            if high == low:
+                continue
+            for index in range(1, len(ordered) - 1):
+                if distances[id(ordered[index])] != float("inf"):
+                    distances[id(ordered[index])] += (
+                        ordered[index + 1]["objective"][objective_index]
+                        - ordered[index - 1]["objective"][objective_index]
+                    ) / (high - low)
+        return distances
+
+    def _select(self, population):
+        selected = []
+        for front in self._fronts(population):
+            if len(selected) + len(front) <= self.population_size:
+                selected.extend(front)
+                continue
+            distances = self._crowding_distance(front)
+            front.sort(key=lambda candidate: distances[id(candidate)], reverse=True)
+            selected.extend(front[:self.population_size - len(selected)])
+            break
+        return selected
+
+    def decide(self, twin) -> dict:
+        active = [ev for ev in twin.evs.values()
+                  if ev.connected_station is not None and ev.soc < ev.departure_soc]
+        if not active:
+            return {}
+        active.sort(key=lambda ev: (ev.departure_deadline_h, ev.soc))
+        ids = [ev.ev_id for ev in active]
+        max_power = [ev.max_power_kw for ev in active]
+        grid_limit_kw = max(0.0, (twin.grid.capacity_mw - twin.grid.base_load_mw) * 1000.0)
+        targets = [min(ev.max_power_kw, ev.energy_needed_kwh() /
+                       max(0.5, ev.departure_deadline_h - twin.sim_time_h) /
+                       max(ev.efficiency, 0.001)) for ev in active]
+        particles = []
+        velocities = []
+        personal_best = []
+        personal_scores = []
+        for _ in range(self.population_size):
+            position = [max(0.0, min(limit, target + self.rng.uniform(-target * 0.5, target * 0.5)))
+                        for target, limit in zip(targets, max_power)]
+            position = self._normalize(position, max_power, grid_limit_kw)
+            velocity = [self.rng.uniform(-max(1.0, target * 0.5), max(1.0, target * 0.5))
+                        for target in targets]
+            score = self._objective_vector(twin, dict(zip(ids, position)), active)
+            particles.append(position)
+            velocities.append(velocity)
+            personal_best.append(position[:])
+            personal_scores.append(score)
+
+        for _ in range(self.generations):
+            population = [{"values": position, "objective": self._objective_vector(twin, dict(zip(ids, position)), active)}
+                          for position in particles]
+            selected = self._select(population)
+            global_best = min(selected, key=lambda candidate: sum(candidate["objective"]))["values"]
+            for index, position in enumerate(particles):
+                for dimension in range(len(active)):
+                    velocities[index][dimension] = (
+                        self.inertia * velocities[index][dimension]
+                        + self.cognitive * self.rng.random() * (personal_best[index][dimension] - position[dimension])
+                        + self.social * self.rng.random() * (global_best[dimension] - position[dimension])
+                    )
+                    position[dimension] = max(0.0, min(max_power[dimension],
+                                                       position[dimension] + velocities[index][dimension]))
+                particles[index] = self._normalize(position, max_power, grid_limit_kw)
+                score = self._objective_vector(twin, dict(zip(ids, particles[index])), active)
+                if self._dominates(score, personal_scores[index]) or sum(score) < sum(personal_scores[index]):
+                    personal_best[index] = particles[index][:]
+                    personal_scores[index] = score
+
+        final_population = [{"values": position, "objective": self._objective_vector(twin, dict(zip(ids, position)), active)}
+                            for position in particles]
+        best = min(self._select(final_population), key=lambda candidate: sum(candidate["objective"]))
+        self.history.append(best["objective"])
+        return {ev.ev_id: best["values"][index] for index, ev in enumerate(active)}
+
+    @staticmethod
+    def _normalize(candidate, max_power, grid_limit_kw):
+        candidate = [max(0.0, min(limit, value)) for value, limit in zip(candidate, max_power)]
+        total = sum(candidate)
+        if total > grid_limit_kw and total > 0.0:
+            scale = grid_limit_kw / total
+            candidate = [value * scale for value in candidate]
+        return candidate

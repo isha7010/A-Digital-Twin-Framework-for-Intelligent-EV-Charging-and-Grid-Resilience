@@ -24,6 +24,7 @@ from ev_digital_twin.baseline_controller import (
     EarliestDeadlineFirstController,
     PSOController,
     NSGAIIController,
+    HybridPSONSGAIIController,
 )
 
 GREEN_DARK = "#173404"
@@ -37,6 +38,7 @@ CONTROLLERS = {
     "edf": EarliestDeadlineFirstController,
     "pso": PSOController,
     "nsga2": NSGAIIController,
+    "hybrid_pso_nsga2": HybridPSONSGAIIController,
 }
 
 st.set_page_config(page_title="EV Digital Twin Dashboard", layout="wide")
@@ -73,6 +75,9 @@ if "inputs" not in st.session_state:
         "base_num_evs": 50,
         "seed": 42,
         "horizon_hours": 24,
+        "attack_type": "none",
+        "attack_probability": 0.0,
+        "security_enabled": True,
     }
 
 # --------------------------------------------------------------- sidebar ----
@@ -87,6 +92,9 @@ with st.sidebar:
             "base_num_evs": result["base_num_evs"],
             "seed": result["seed"],
             "horizon_hours": result["horizon_hours"],
+            "attack_type": "none",
+            "attack_probability": 0.0,
+            "security_enabled": True,
         }
 
     st.divider()
@@ -101,6 +109,14 @@ with st.sidebar:
     base_num_evs = st.slider("Base EV population", 10, 300, inputs["base_num_evs"], step=10)
     horizon_hours = st.slider("Horizon (hours)", 6, 48, inputs["horizon_hours"], step=6)
     seed = st.number_input("Random seed", value=int(inputs["seed"]), step=1)
+    attack_type = st.selectbox(
+        "Telemetry attack", ["none", "soc_spoof", "power_spike", "grid_load_spoof", "replay"],
+        index=["none", "soc_spoof", "power_spike", "grid_load_spoof", "replay"].index(inputs["attack_type"]),
+    )
+    attack_probability = st.slider(
+        "Attack probability", 0.0, 1.0, float(inputs["attack_probability"]), step=0.05,
+    )
+    security_enabled = st.checkbox("Enable telemetry security", value=inputs["security_enabled"])
 
     st.session_state.inputs = {
         "mode": "manual",
@@ -108,6 +124,9 @@ with st.sidebar:
         "base_num_evs": base_num_evs,
         "seed": seed,
         "horizon_hours": horizon_hours,
+        "attack_type": attack_type,
+        "attack_probability": attack_probability,
+        "security_enabled": security_enabled,
     }
 
     st.divider()
@@ -139,6 +158,9 @@ if run_clicked or "last_results" not in st.session_state:
             seed=inputs["seed"],
         )
         cfg.horizon_hours = inputs["horizon_hours"]
+        cfg.telemetry_attack_type = inputs["attack_type"]
+        cfg.telemetry_attack_probability = inputs["attack_probability"]
+        cfg.telemetry_security_enabled = inputs["security_enabled"]
         controller = CONTROLLERS[name]()
         sim = Simulation(cfg, controller)
         summary = sim.run()
@@ -164,6 +186,8 @@ for col, (name, r) in zip(cols, results.items()):
             ("Steps over capacity", "steps_over_capacity", "{:d}"),
             ("EVs departed", "evs_departed", "{:d}"),
             ("% met required SOC", "pct_evs_met_required_soc", "{:.1f}"),
+            ("Telemetry alerts", "telemetry_alerts", "{:d}"),
+            ("High-severity alerts", "high_severity_telemetry_alerts", "{:d}"),
         ]:
             val = s.get(key, 0)
             st.markdown(

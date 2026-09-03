@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 class MetricsRecorder:
     def __init__(self):
         self.rows = []
+        self.security_alerts = []
+
+    def record_security_alerts(self, alerts):
+        self.security_alerts.extend(alerts)
 
     def record_step(self, twin, ev_load_mw: float):
         cost_this_step = ev_load_mw * 1000.0 * twin.dt_hours * twin.grid.current_price
@@ -43,4 +47,8 @@ class MetricsRecorder:
             "steps_over_capacity": over_capacity_steps,
             "evs_departed": n_departed,
             "pct_evs_met_required_soc": round(pct_met, 1),
+            "telemetry_alerts": len(self.security_alerts),
+            "high_severity_telemetry_alerts": sum(
+                1 for alert in self.security_alerts if alert["severity"] == "high"
+            ),
         }

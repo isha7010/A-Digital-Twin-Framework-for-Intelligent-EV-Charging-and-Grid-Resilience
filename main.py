@@ -19,13 +19,14 @@ import csv
 import os
 
 from ev_digital_twin.config import SimulationConfig
-from ev_digital_twin.scenarios import build_config
+from ev_digital_twin.scenarios import SCENARIOS, build_config
 from ev_digital_twin.simulation import Simulation
 from ev_digital_twin.baseline_controller import (
     UncontrolledController,
     EarliestDeadlineFirstController,
     PSOController,
     NSGAIIController,
+    HybridPSONSGAIIController,
 )
 
 
@@ -34,6 +35,7 @@ CONTROLLERS = {
     "edf": EarliestDeadlineFirstController,
     "pso": PSOController,
     "nsga2": NSGAIIController,
+    "hybrid_pso_nsga2": HybridPSONSGAIIController,
 }
 
 
@@ -45,6 +47,18 @@ def parse_args():
     p.add_argument("--seed", type=int, default=None, help="random seed")
     p.add_argument("--out", type=str, default="outputs/metrics.csv")
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--scenarios", nargs="+", choices=SCENARIOS.keys(),
+                   help="run a Phase 6 scenario stress sweep")
+    p.add_argument("--controllers", nargs="+", choices=CONTROLLERS.keys(),
+                   help="controllers to evaluate in a stress sweep")
+    p.add_argument("--seeds", nargs="+", type=int, default=[42],
+                   help="random seeds for a stress sweep")
+    p.add_argument("--attack-type", choices=["none", "soc_spoof", "power_spike",
+                                              "grid_load_spoof", "replay"], default="none")
+    p.add_argument("--attack-probability", type=float, default=0.0,
+                   help="probability of attacking each telemetry message")
+    p.add_argument("--disable-security", action="store_true",
+                   help="disable telemetry validation and anomaly detection")
     return p.parse_args()
 
 
@@ -70,8 +84,60 @@ def run_scenario_comparison(controller_names, scenario_names, base_num_evs=50, h
     return rows
 
 
+def run_stress_sweep(controller_names, scenario_names, seeds=(42,),
+                     base_num_evs=50, horizon_hours=24, attack_type="none",
+                     attack_probability=0.0, security_enabled=True):
+    """Evaluate every controller/scenario/seed combination.
+
+    Each run gets a freshly built configuration and controller, making the
+    returned table suitable for repeatable benchmark comparisons.
+    """
+    rows = []
+    for seed in seeds:
+        for scenario_name in scenario_names:
+            cfg = build_config(scenario_name, base_num_evs=base_num_evs, seed=seed)
+            cfg.horizon_hours = horizon_hours
+            cfg.telemetry_attack_type = attack_type
+            cfg.telemetry_attack_probability = attack_probability
+            cfg.telemetry_security_enabled = security_enabled
+            for controller_name in controller_names:
+                controller = CONTROLLERS[controller_name]()
+                summary = Simulation(cfg, controller).run(verbose=False)
+                rows.append({
+                    "seed": seed,
+                    "scenario": scenario_name,
+                    "controller": controller.name,
+                    "total_electricity_cost_usd": summary.get("total_electricity_cost_usd", 0.0),
+                    "total_carbon_emissions_kg": summary.get("total_carbon_emissions_kg", 0.0),
+                    "peak_grid_load_mw": summary.get("peak_grid_load_mw", 0.0),
+                    "steps_over_capacity": summary.get("steps_over_capacity", 0),
+                    "pct_evs_met_required_soc": summary.get("pct_evs_met_required_soc", 0.0),
+                })
+    return rows
+
+
 def main():
     args = parse_args()
+    if args.scenarios:
+        controller_names = args.controllers or list(CONTROLLERS.keys())
+        rows = run_stress_sweep(
+            controller_names=controller_names,
+            scenario_names=args.scenarios,
+            seeds=args.seeds,
+            base_num_evs=args.evs or 50,
+            horizon_hours=args.hours or 24,
+            attack_type=args.attack_type,
+            attack_probability=args.attack_probability,
+            security_enabled=not args.disable_security,
+        )
+        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+        with open(args.out, "w", newline="") as output_file:
+            writer = csv.DictWriter(output_file, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"Stress sweep completed: {len(rows)} runs written to {args.out}")
+        return
+
     cfg = SimulationConfig()
     if args.evs is not None:
         cfg.num_evs = args.evs
@@ -79,6 +145,9 @@ def main():
         cfg.horizon_hours = args.hours
     if args.seed is not None:
         cfg.random_seed = args.seed
+    cfg.telemetry_attack_type = args.attack_type
+    cfg.telemetry_attack_probability = args.attack_probability
+    cfg.telemetry_security_enabled = not args.disable_security
 
     controller = CONTROLLERS[args.controller]()
     sim = Simulation(cfg, controller)

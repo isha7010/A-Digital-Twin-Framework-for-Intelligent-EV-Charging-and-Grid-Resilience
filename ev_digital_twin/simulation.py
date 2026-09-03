@@ -15,6 +15,7 @@ Closed-loop simulation workflow (spec section 15), baseline version:
 from .digital_twin import DigitalTwin
 from .telemetry import TelemetrySimulator
 from .metrics import MetricsRecorder
+from .security import TelemetryAttackSimulator, TelemetrySecurityMonitor
 
 
 class Simulation:
@@ -25,6 +26,9 @@ class Simulation:
         self.telemetry_sim = TelemetrySimulator(cfg)
         self.metrics = MetricsRecorder()
         self.telemetry_log = []
+        self.security_alert_log = []
+        self.attack_simulator = TelemetryAttackSimulator(cfg)
+        self.security_monitor = TelemetrySecurityMonitor(cfg) if cfg.telemetry_security_enabled else None
         self.step_index = 0
 
     def run(self, verbose: bool = False):
@@ -33,7 +37,12 @@ class Simulation:
             # detection hooks; the baseline controller reads twin state
             # directly for now.
             messages = self.telemetry_sim.generate(self.twin, self.step_index)
+            messages = self.attack_simulator.apply(messages, self.step_index)
             self.telemetry_log.append(messages)
+            if self.security_monitor is not None:
+                alerts = self.security_monitor.inspect(messages, self.twin, self.step_index)
+                self.security_alert_log.extend(alerts)
+                self.metrics.record_security_alerts(alerts)
 
             self.twin._admit_arrivals()
             self.twin.update_environment()

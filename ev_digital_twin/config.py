@@ -43,6 +43,9 @@ class SimulationConfig:
     # Telemetry
     telemetry_noise_std: float = 0.02  # fraction noise on readings
     telemetry_dropout_prob: float = 0.01  # chance a message is missing
+    telemetry_security_enabled: bool = True
+    telemetry_attack_type: str = "none"
+    telemetry_attack_probability: float = 0.0
 
     # Random seed for reproducibility
     random_seed: int = 42
