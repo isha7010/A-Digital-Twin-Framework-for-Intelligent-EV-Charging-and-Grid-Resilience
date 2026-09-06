@@ -18,11 +18,16 @@ class SimulationConfig:
     ev_min_soc: float = 0.15
     ev_departure_soc: float = 0.85
     ev_charging_efficiency: float = 0.92
-    v2g_participation_rate: float = 0.0  # baseline: no V2G yet
+    v2g_participation_rate: float = 0.0
+    v2g_reserve_soc: float = 0.30
+    v2g_support_threshold: float = 0.85
+    v2g_max_discharge_fraction: float = 0.5
+    rl_training_episodes: int = 0
+    rl_epsilon: float = 0.2
 
     # Charging stations
-    num_stations: int = 15
-    connectors_per_station: int = 2
+    num_stations: int = 16
+    connectors_per_station: int = 4
     station_max_power_kw: float = 50.0
 
     # Grid

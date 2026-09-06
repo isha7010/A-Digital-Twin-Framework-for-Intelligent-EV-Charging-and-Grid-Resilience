@@ -17,6 +17,8 @@ class MetricsRecorder:
         self.rows.append({
             "time_h": round(twin.sim_time_h, 3),
             "total_load_mw": round(twin.grid.total_load_mw(), 4),
+            "net_load_mw": round(twin.grid.net_load_mw(), 4),
+            "v2g_export_mw": round(twin.grid.v2g_export_mw, 4),
             "ev_load_mw": round(ev_load_mw, 4),
             "base_load_mw": round(twin.grid.base_load_mw, 4),
             "solar_mw": round(twin.solar_mw, 4),
@@ -33,6 +35,7 @@ class MetricsRecorder:
             return {}
         total_cost = sum(r["cost_step_usd"] for r in self.rows)
         total_carbon = sum(r["carbon_step_kg"] for r in self.rows)
+        total_v2g_export = sum(r["v2g_export_mw"] * twin.dt_hours * 1000.0 for r in self.rows)
         peak_load = max(r["total_load_mw"] for r in self.rows)
         over_capacity_steps = sum(1 for r in self.rows if r["over_capacity"])
 
@@ -43,6 +46,7 @@ class MetricsRecorder:
         return {
             "total_electricity_cost_usd": round(total_cost, 2),
             "total_carbon_emissions_kg": round(total_carbon, 2),
+            "total_v2g_energy_exported_kwh": round(total_v2g_export, 2),
             "peak_grid_load_mw": round(peak_load, 3),
             "steps_over_capacity": over_capacity_steps,
             "evs_departed": n_departed,

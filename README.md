@@ -1,129 +1,154 @@
-# EV Digital Twin — Optimization Project
+## EV Digital Twin for Intelligent Charging and Grid Resilience
 
-This repository now contains a working digital twin with a validated
-baseline, a PSO optimizer, and an NSGA-II-inspired multi-objective
-controller. The project follows the recommended roadmap below and has
-progressed through the core optimization phases:
+An executable research platform for simulating, optimizing, securing, and
+evaluating electric-vehicle charging infrastructure. The project models EVs,
+charging stations, grid demand, renewable generation, pricing, carbon
+intensity, telemetry, failures, attacks, V2G energy export, and adaptive
+controllers in one reproducible Python workflow.
+
+It is designed for experimentation without physical IoT hardware or a real
+charging dataset. Synthetic scenarios are deterministic when given a seed,
+so controller behavior can be compared fairly across normal and stressed
+grid conditions.
+
+## Project Goal
+
+The platform answers questions such as:
+
+- How does uncontrolled charging compare with deadline-aware scheduling?
+- Can PSO, NSGA-II, and hybrid optimization reduce cost, carbon, or overload?
+- How do controllers behave during EV surges, renewable loss, grid limits, or charger failures?
+- Can malformed or attacked telemetry be detected before it influences decisions?
+- Can participating EVs support the grid through V2G without violating SOC reserves?
+- Can an adaptive Q-learning policy learn a useful charging strategy from simulation?
+
+## Roadmap Status
+
+Phases 1 through 9 are implemented as working prototypes. Phases 10 and 11
+are currently in progress. Phase 12 is optional follow-up work for dashboard
+polish, packaging, and deployment automation.
 
 ```
 Digital Twin -> baseline -> PSO -> NSGA-II -> hybrid PSO-NSGA-II
 -> scenario/stress testing -> anomaly/security -> V2G/multi-agent
--> RL -> final dashboard
+-> Q-learning -> real-time simulation -> live SVG/HTML visuals
+-> dashboard/deployment polish
 ```
 
-## Current implementation status
+## How the System Works
 
-Completed phases:
-- Phase 1: Digital Twin core
-- Phase 2: Baseline controller + closed-loop simulation + metrics
-- Phase 3: PSO controller prototype
-- Phase 4: NSGA-II multi-objective controller prototype
-- Phase 5: hybrid PSO-NSGA-II controller prototype
-- Phase 6: scenario/stress engine
-- Phase 7: telemetry anomaly/security layer
+Each simulation advances in configurable time steps, normally 15 minutes:
 
-In progress / next up:
-- Phase 8: V2G / multi-agent coordination
-- Phase 9: RL controller
-- Phase 10: final polished dashboard and deployment workflow
+1. The digital twin admits scheduled EV arrivals and connects available stations.
+2. The environment updates base load, solar generation, electricity price, and carbon intensity.
+3. The telemetry simulator emits noisy and occasionally dropped IoT messages.
+4. Optional attack hooks mutate messages; the security monitor validates and scores them.
+5. The selected controller observes the twin and returns `{ev_id: power_kw}` decisions.
+6. The twin applies charging or V2G discharge while enforcing physical limits.
+7. Departing EVs are recorded with final SOC and deadline compliance.
+8. Per-step metrics and final summary metrics are written or displayed.
 
-The repo is now beyond the baseline scaffold and serves as a working
-research-grade EV charging and grid optimization platform with
-comparison-capable controller logic.
+Controllers currently read the simulated twin state directly. Telemetry is
+validated and logged independently so later experiments can safely replace
+direct state access with trusted telemetry without changing the simulation
+contract.
 
-## What's included
+## Repository Structure
 
-| Module | Spec section | Purpose |
-|---|---|---|
-| `ev_digital_twin/ev.py` | 5.1 | EV state: SOC, battery, deadlines, charging/discharge physics |
-| `ev_digital_twin/charging_station.py` | 5.2 | Connectors, occupancy, power delivery |
-| `ev_digital_twin/grid.py` | 5.3 / 5.4 | Base load curve, solar curve, TOU pricing, carbon intensity |
-| `ev_digital_twin/digital_twin.py` | 4 / 5 | Ties state together: arrivals, connections, stepping, departures |
-| `ev_digital_twin/telemetry.py` | 6 | Simulated IoT messages with configurable noise/dropout |
-| `ev_digital_twin/security.py` | 7 | Telemetry validation, anomaly alerts, and attack simulation hooks |
-| `ev_digital_twin/baseline_controller.py` | 21 + optimizer extensions | `UncontrolledController`, `EarliestDeadlineFirstController`, `PSOController`, `NSGAIIController`, `HybridPSONSGAIIController` |
-| `ev_digital_twin/metrics.py` | 18 (subset) | Cost, carbon, peak load, capacity violations, SOC compliance |
-| `ev_digital_twin/simulation.py` | 15 | The closed-loop simulation runner |
-| `ev_digital_twin/scenarios.py` | 14 | Scenario presets + random input generator (no real dataset yet) |
-| `main.py` | — | CLI entry point |
-| `dashboard.py` | 16 (early) | Green-themed Streamlit dashboard with the randomizer built in |
-| `tests/test_baseline.py` | — | Sanity tests (run, metrics, EDF vs uncontrolled) |
+| Path | Responsibility |
+|---|---|
+| `ev_digital_twin/ev.py` | EV battery, SOC, charging efficiency, deadlines, and V2G discharge limits |
+| `ev_digital_twin/charging_station.py` | Station availability, four-connector occupancy, and per-connector power limits |
+| `ev_digital_twin/grid.py` | Base-load profile, solar generation, pricing, carbon intensity, and net load |
+| `ev_digital_twin/digital_twin.py` | Stateful EV, station, and grid environment |
+| `ev_digital_twin/telemetry.py` | Synthetic IoT messages, noise, and dropout |
+| `ev_digital_twin/security.py` | Telemetry validation, anomaly alerts, and attack simulation |
+| `ev_digital_twin/baseline_controller.py` | Uncontrolled, EDF, PSO, NSGA-II, and hybrid PSO-NSGA-II controllers |
+| `ev_digital_twin/v2g_controller.py` | Multi-agent bidirectional charging and grid support |
+| `ev_digital_twin/rl_controller.py` | Dependency-free tabular Q-learning controller |
+| `ev_digital_twin/realtime_runner.py` | Thread-safe background tick loop and pending changes |
+| `ev_digital_twin/metrics.py` | Cost, carbon, peak load, capacity, SOC, alert, and V2G metrics |
+| `ev_digital_twin/simulation.py` | Closed-loop simulation runner |
+| `ev_digital_twin/scenarios.py` | Scenario presets and randomized synthetic inputs |
+| `main.py` | CLI simulation, controller registry, and stress sweeps |
+| `dashboard.py` | Streamlit comparison dashboard |
+| `tests/test_baseline.py` | Regression and behavior tests for all implemented phases |
+| `outputs/` | Generated per-step metrics and benchmark CSV files |
 
-## Quick start
+## Installation
+
+Python 3.10+ is recommended.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # optional
+python -m venv .venv
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
+```
 
+The simulation and controllers use the Python standard library. Streamlit,
+Pandas, and Matplotlib are used by the dashboard. No Gymnasium,
+Stable-Baselines3, or external optimization package is required.
+
+## Basic CLI Usage
+
+Run a single simulation:
+
+```bash
 python main.py --controller uncontrolled --evs 50 --hours 24
-python main.py --controller edf --evs 50 --hours 24 --verbose
+python main.py --controller edf --evs 50 --hours 24 --seed 42 --verbose
 ```
 
-Per-step metrics are written to `outputs/metrics.csv`; a summary prints
-to stdout (total cost, peak grid load, carbon emissions, capacity
-violations, % of EVs that met their required departure SOC).
+Available controllers:
 
-## Dashboard (green theme)
+| CLI name | Behavior |
+|---|---|
+| `uncontrolled` | Charges connected EVs at maximum power |
+| `edf` | Earliest-deadline-first scheduling with grid headroom |
+| `pso` | Particle-swarm charging optimization |
+| `nsga2` | Pareto-style multi-objective candidate selection |
+| `hybrid_pso_nsga2` | PSO exploration combined with Pareto selection |
+| `multi_agent_v2g` | Coordinated charging and bidirectional grid support |
+| `q_learning` | Adaptive tabular Q-learning policy |
 
-A Streamlit dashboard is included so you can see results visually and
-compare controllers without touching the CLI:
+Single-run output includes a summary on stdout and per-step metrics in the
+file supplied by `--out` (default: `outputs/metrics.csv`). Common summary
+fields are electricity cost, carbon emissions, peak grid load, capacity
+violations, EV departure compliance, telemetry alerts, and V2G energy exported.
 
-```bash
-pip install -r requirements.txt   # if not already installed
-streamlit run dashboard.py
-```
+## Scenario Stress Testing
 
-It opens in your browser (usually `http://localhost:8501`). From the
-sidebar you can:
+The built-in presets are:
 
-- **🎲 Randomize inputs** — picks a random scenario preset (see below),
-  a random EV population size, horizon, and seed. Use this whenever
-  you don't have a real dataset yet and just want plausible synthetic
-  inputs to exercise the pipeline.
-- **Set inputs manually** — pick a scenario, EV count, horizon and
-  seed by hand.
-- **Compare controllers** — select one or more controllers, including
-  `pso`, `nsga2`, and `hybrid_pso_nsga2`; the
-  dashboard runs the simulation for each and shows side-by-side
-  summary cards, a grid-load-over-time chart, a price/carbon-intensity
-  chart, and a metrics table.
+- `normal`: standard EV population and renewable generation.
+- `ev_surge`: concentrated arrivals during a short evening window.
+- `low_renewable`: substantially reduced solar generation.
+- `grid_constraint`: reduced grid capacity.
+- `charger_failure`: reduced station availability.
+- `high_penetration`: sharply increased EV population.
+- `combined_stress`: simultaneous demand, renewable, and grid stress.
 
-Styling (card colors, `.streamlit/config.toml` theme, chart colors)
-uses a single green palette throughout.
-
-### Input randomizer / scenario presets
-
-`ev_digital_twin/scenarios.py` implements the scenario presets from
-spec section 14 (`normal`, `ev_surge`, `low_renewable`,
-`grid_constraint`, `charger_failure`, `high_penetration`,
-`combined_stress`) plus `randomize_inputs()`, which picks one at
-random along with a random EV count, horizon, and seed. This is a
-stand-in for real telemetry/historical datasets — swap it out once you
-have actual data, but keep it around for stress-testing (section 14)
-and for generating training scenarios once you get to the RL phase.
-
-Run tests:
+Run every requested scenario/controller/seed combination:
 
 ```bash
-python tests/test_baseline.py
-# or, if you install pytest:
-pytest tests/
-```
-
-Run a repeatable Phase 6 stress sweep across scenarios, controllers, and
-seeds:
-
-```bash
-python main.py --scenarios normal ev_surge grid_constraint combined_stress \
-  --controllers edf hybrid_pso_nsga2 --seeds 42 43 44 \
+python main.py \
+  --scenarios normal ev_surge grid_constraint combined_stress \
+  --controllers edf hybrid_pso_nsga2 q_learning \
+  --seeds 42 43 44 --rl-episodes 5 \
   --evs 50 --hours 24 --out outputs/stress_sweep.csv
 ```
 
-The sweep writes one row per scenario/controller/seed combination, making
-results directly comparable across demand surges, renewable reductions,
-charger outages, and grid constraints.
+The CSV contains one row per combination and is suitable for repeatable
+controller benchmarking. Use `--v2g-rate 0.5` or `--v2g-rate 1.0` to include
+partial or full V2G participation in a sweep.
 
-Telemetry security can be exercised during either a single run or a sweep:
+## Telemetry Security Experiments
+
+Security validation is enabled by default. Attack injection is disabled by
+default and can be enabled for controlled experiments:
 
 ```bash
 python main.py --controller edf --evs 30 --hours 6 \
@@ -131,29 +156,99 @@ python main.py --controller edf --evs 30 --hours 6 \
   --out outputs/security_metrics.csv
 ```
 
-Supported attack hooks are `soc_spoof`, `power_spike`, `grid_load_spoof`,
-and `replay`. Attacks are disabled by default. Security summaries include
-total and high-severity telemetry alerts; use `--disable-security` to turn
-validation off for a controlled comparison.
+Supported attack hooks are `soc_spoof`, `power_spike`, `grid_load_spoof`, and
+`replay`. The monitor checks required fields, numeric ranges, EV identity,
+duplicate messages, and implausible SOC jumps. Use `--disable-security` to
+run a controlled comparison without validation.
 
-## Design notes
+## V2G and Multi-Agent Control
 
-- **No physical hardware.** `telemetry.py` simulates what an IoT
-  deployment would emit (per the spec's "no physical IoT hardware"
-  requirement), including configurable measurement noise and message
-  dropout — this is the hook point for the anomaly/attack-detection
-  layer in a later phase.
-- **Two baseline controllers** are included so you have more than one
-  reference point once you add PSO/NSGA-II: `uncontrolled` (charge at
-  max power immediately) and `edf` (earliest-deadline-first, grid
-  capacity aware). The test suite checks that EDF never causes *more*
-  capacity violations than uncontrolled charging.
-- **Everything is a plain dict/dataclass**, not tied to any ML or
-  optimization library yet, so PSO/NSGA-II particles can be encoded as
-  `{ev_id: power_kw}` dictionaries (or arrays indexed the same way)
-  without refactoring the twin.
+Run the V2G controller with configurable participation:
 
-## Phase-wise project status
+```bash
+python main.py --controller multi_agent_v2g --v2g-rate 1.0 \
+  --evs 50 --hours 24 --out outputs/v2g_metrics.csv
+```
+
+Eligible EV agents discharge when grid support is needed, remain above the
+configured reserve SOC, and respect per-EV discharge limits. Other EVs are
+scheduled around remaining grid headroom. The simulation records both EV
+charging load and V2G export, and capacity checks use net grid load.
+
+## Reinforcement Learning
+
+Phase 9 uses dependency-free tabular Q-learning rather than requiring a
+large ML framework:
+
+```bash
+python main.py --controller q_learning --rl-episodes 10 \
+  --evs 50 --hours 24 --out outputs/rl_metrics.csv
+```
+
+The policy state is an aggregate tuple containing grid utilization, price,
+solar availability, and charging urgency buckets. Its shared fleet actions
+are reduced V2G, idle, partial charging, and full charging. Training runs
+episodes through the same digital twin; evaluation sets exploration to zero.
+
+## Dashboard
+
+Launch the Streamlit dashboard:
+
+```bash
+streamlit run dashboard.py
+```
+
+The dashboard supports manual or randomized scenario inputs, controller
+comparison, V2G participation, telemetry attack settings, security toggles,
+RL training episodes, summary cards, grid-load charts, price/carbon charts,
+and a per-controller metrics table. The live station view contains 16
+stations arranged across four 2x2 station grids, with four connector slots
+shown for every station.
+
+When real-time simulation is started, the dashboard also provides start/stop
+controls and refreshes the four station grids once per second. Stations show
+connector occupancy and EV SOC using the live digital-twin snapshot.
+
+## Metrics and Outputs
+
+Per-step CSV metrics include:
+
+- simulation time, total load, net load, EV load, and V2G export;
+- base load, solar generation, price, and carbon intensity;
+- active EV count, step cost, step carbon, and capacity status.
+
+Summary metrics include total cost, total carbon, peak load, capacity
+violations, departed EVs, required-SOC compliance, telemetry alert counts,
+high-severity alert counts, and total V2G energy exported.
+
+Generated CSVs in `outputs/` are experiment artifacts and can be regenerated
+at any time by rerunning the corresponding command.
+
+## Testing
+
+Run the full regression suite:
+
+```bash
+pytest tests/
+```
+
+The tests cover controller execution, SOC bounds, stress-sweep coverage and
+reproducibility, telemetry attack detection, V2G reserve protection, RL
+training/evaluation, real-time batch-equivalence, tick-boundary updates, and
+compatibility of the public comparison helpers.
+
+## Scope and Limitations
+
+- The project uses synthetic EV arrivals, grid curves, telemetry, and attacks.
+- There is no physical charger, MQTT broker, historical dataset, or hardware integration.
+- PSO, NSGA-II, and Q-learning implementations are lightweight research prototypes,
+  intended for reproducible comparison rather than production-scale optimization.
+- Controllers currently observe the digital twin directly; telemetry security
+  is implemented as an observability and validation layer.
+- Phase 12 is optional follow-up work for deployment packaging, richer visualizations,
+  automated reports, and production hardening.
+
+## Phase-wise Project Status
 
 ### Phase 1 — Digital Twin core: completed
 - EV battery / SOC model
@@ -163,11 +258,11 @@ validation off for a controlled comparison.
 - digital twin state transitions over time
 
 ### Phase 2 — Baseline controller + simulation: completed
-- Uncontrolled charging baseline
+- uncontrolled charging baseline
 - EDF deadline-prioritized baseline
 - closed-loop simulation loop
 - step-wise metrics recorder
-- summary statistics for cost, carbon, peak load, and SOC compliance
+- cost, carbon, peak load, capacity, and SOC summaries
 - CLI execution and test suite validation
 
 ### Phase 3 — PSO optimization: completed prototype
@@ -179,8 +274,7 @@ validation off for a controlled comparison.
 
 ### Phase 4 — NSGA-II multi-objective optimization: completed prototype
 - Pareto-style population evolution
-- multi-objective candidate ranking across cost, carbon, overload,
-  and unmet SOC
+- multi-objective candidate ranking across cost, carbon, overload, and unmet SOC
 - non-dominated solution selection
 - simulation-ready controller interface
 - baseline compatibility and test coverage
@@ -202,20 +296,47 @@ validation off for a controlled comparison.
 - temporal SOC-jump anomaly detection
 - configurable SOC spoofing, power spike, grid-load spoofing, and replay hooks
 - structured alert logs and total/high-severity summary metrics
-- CLI support for security experiments and controlled validation-off runs
+- CLI and dashboard support for security experiments
 
-### Phase 8 — V2G / multi-agent: pending
-- bidirectional charging coordination
-- multi-agent scheduling and grid support decisions
+### Phase 8 — V2G / multi-agent: completed prototype
+- configurable V2G participation across EV agents
+- multi-agent charging and discharging coordination
+- SOC reserve and per-EV discharge-power protection
+- grid export and net-load accounting
+- V2G metrics in CLI, CSV, and dashboard results
+- `multi_agent_v2g` controller registration
 
-### Phase 9 — RL controller: pending
-- adaptive control policy training for dynamic conditions
+### Phase 9 — RL controller: completed prototype
+- dependency-free tabular Q-learning policy
+- configurable training episodes and exploration decay
+- aggregate state representation for grid, price, solar, and urgency
+- charging and V2G action support
+- CLI, dashboard, and stress-sweep registration
 
-### Phase 10 — Final dashboard / deployment: pending
-- final polished dashboard visualizations
-- automation, benchmarking, and packaged deployment workflow
+### Phase 10 — Real-time simulation engine: in progress
+- background-thread tick loop around the existing digital twin and controller
+- thread-safe live state with twin, controller, metrics, running flag, and step
+- tick-boundary application of controller, V2G, and scenario changes
+- deterministic comparison with the existing batch simulation
+- `tests/test_realtime.py` coverage for real-time determinism
 
-## Recommended next milestone
+### Phase 11 — Live SVG/HTML visual layer: in progress
+- live EV, station, and grid state rendered with inline SVG/HTML
+- one-second Streamlit fragment updates without resetting sidebar state
+- pure rendering layer driven by `DigitalTwin.get_state_snapshot()`
+- 16 stations displayed as four 2x2 station grids
+- four connector slots rendered for every station
 
-The next practical milestone is Phase 8: add bidirectional V2G charging
-and multi-agent coordination.
+### Phase 12 — Final dashboard / deployment: optional follow-up
+- richer dashboard visualizations
+- automated benchmark reports
+- packaging and deployment workflow
+- production hardening and operational documentation
+
+## Recommended Next Steps
+
+The current focus is completing Phases 10 and 11: real-time background
+execution and live visual state rendering. Phase 12 remains optional follow-up
+work for richer dashboard polish, benchmark automation, packaging, and
+deployment documentation.
+

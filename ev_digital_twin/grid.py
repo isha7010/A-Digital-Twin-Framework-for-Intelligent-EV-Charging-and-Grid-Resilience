@@ -10,14 +10,18 @@ class GridState:
     capacity_mw: float
     carbon_intensity_base: float
     ev_load_mw: float = 0.0
+    v2g_export_mw: float = 0.0
     current_price: float = 0.0
     carbon_intensity: float = 0.0
 
     def total_load_mw(self) -> float:
         return self.base_load_mw + self.ev_load_mw
 
+    def net_load_mw(self) -> float:
+        return self.base_load_mw + self.ev_load_mw - self.v2g_export_mw
+
     def is_over_capacity(self) -> bool:
-        return self.total_load_mw() > self.capacity_mw
+        return self.net_load_mw() > self.capacity_mw
 
     def update_carbon_intensity(self, renewable_fraction: float):
         # More renewable share on the grid -> lower effective carbon intensity.

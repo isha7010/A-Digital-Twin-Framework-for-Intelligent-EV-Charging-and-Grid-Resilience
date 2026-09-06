@@ -130,6 +130,7 @@ class DigitalTwin:
         Returns total EV load in MW added to the grid this step.
         """
         total_energy_kwh = 0.0
+        exported_energy_kwh = 0.0
         for ev_id, power_kw in decisions.items():
             ev = self.evs.get(ev_id)
             if ev is None or ev.connected_station is None:
@@ -143,9 +144,11 @@ class DigitalTwin:
             else:
                 energy_to_grid = ev.apply_discharge(-power_kw, self.dt_hours)
                 total_energy_kwh -= energy_to_grid
+                exported_energy_kwh += energy_to_grid
             station.power_delivered_kw[ev.connected_connector] = power_kw
 
         self.grid.ev_load_mw = max(0.0, total_energy_kwh / self.dt_hours / 1000.0)
+        self.grid.v2g_export_mw = exported_energy_kwh / self.dt_hours / 1000.0
         return self.grid.ev_load_mw
 
     def step(self, decisions: dict):
@@ -163,3 +166,38 @@ class DigitalTwin:
 
     def active_ev_ids(self):
         return list(self.evs.keys())
+
+    def get_state_snapshot(self) -> dict:
+        """Return a JSON-friendly snapshot for live visualization."""
+        return {
+            "time_h": round(self.sim_time_h, 3),
+            "grid": {
+                "base_load_mw": round(self.grid.base_load_mw, 4),
+                "ev_load_mw": round(self.grid.ev_load_mw, 4),
+                "v2g_export_mw": round(self.grid.v2g_export_mw, 4),
+                "net_load_mw": round(self.grid.net_load_mw(), 4),
+                "capacity_mw": round(self.grid.capacity_mw, 4),
+                "solar_mw": round(self.solar_mw, 4),
+            },
+            "stations": [
+                {
+                    "station_id": station.station_id,
+                    "location": station.location,
+                    "available": station.available,
+                    "occupancy": dict(station.connector_occupancy),
+                    "power_kw": round(station.total_power_kw(), 3),
+                }
+                for station in self.stations.values()
+            ],
+            "evs": [
+                {
+                    "ev_id": ev.ev_id,
+                    "soc": round(ev.soc, 4),
+                    "state": ev.state,
+                    "station": ev.connected_station,
+                    "connector": ev.connected_connector,
+                    "v2g_participant": ev.v2g_participant,
+                }
+                for ev in self.evs.values()
+            ],
+        }

@@ -28,6 +28,8 @@ from ev_digital_twin.baseline_controller import (
     NSGAIIController,
     HybridPSONSGAIIController,
 )
+from ev_digital_twin.v2g_controller import MultiAgentV2GController
+from ev_digital_twin.rl_controller import QLearningController
 
 
 CONTROLLERS = {
@@ -36,6 +38,8 @@ CONTROLLERS = {
     "pso": PSOController,
     "nsga2": NSGAIIController,
     "hybrid_pso_nsga2": HybridPSONSGAIIController,
+    "multi_agent_v2g": MultiAgentV2GController,
+    "q_learning": QLearningController,
 }
 
 
@@ -59,6 +63,10 @@ def parse_args():
                    help="probability of attacking each telemetry message")
     p.add_argument("--disable-security", action="store_true",
                    help="disable telemetry validation and anomaly detection")
+    p.add_argument("--v2g-rate", type=float, default=None,
+                   help="fraction of EVs participating in V2G")
+    p.add_argument("--rl-episodes", type=int, default=0,
+                   help="training episodes before evaluating q_learning")
     return p.parse_args()
 
 
@@ -86,7 +94,8 @@ def run_scenario_comparison(controller_names, scenario_names, base_num_evs=50, h
 
 def run_stress_sweep(controller_names, scenario_names, seeds=(42,),
                      base_num_evs=50, horizon_hours=24, attack_type="none",
-                     attack_probability=0.0, security_enabled=True):
+                     attack_probability=0.0, security_enabled=True, v2g_rate=0.0,
+                     rl_episodes=0):
     """Evaluate every controller/scenario/seed combination.
 
     Each run gets a freshly built configuration and controller, making the
@@ -100,8 +109,12 @@ def run_stress_sweep(controller_names, scenario_names, seeds=(42,),
             cfg.telemetry_attack_type = attack_type
             cfg.telemetry_attack_probability = attack_probability
             cfg.telemetry_security_enabled = security_enabled
+            cfg.v2g_participation_rate = max(0.0, min(1.0, v2g_rate))
             for controller_name in controller_names:
                 controller = CONTROLLERS[controller_name]()
+                if controller_name == "q_learning":
+                    controller.train(cfg, episodes=rl_episodes)
+                    controller.set_evaluation_mode()
                 summary = Simulation(cfg, controller).run(verbose=False)
                 rows.append({
                     "seed": seed,
@@ -112,6 +125,7 @@ def run_stress_sweep(controller_names, scenario_names, seeds=(42,),
                     "peak_grid_load_mw": summary.get("peak_grid_load_mw", 0.0),
                     "steps_over_capacity": summary.get("steps_over_capacity", 0),
                     "pct_evs_met_required_soc": summary.get("pct_evs_met_required_soc", 0.0),
+                    "total_v2g_energy_exported_kwh": summary.get("total_v2g_energy_exported_kwh", 0.0),
                 })
     return rows
 
@@ -129,6 +143,8 @@ def main():
             attack_type=args.attack_type,
             attack_probability=args.attack_probability,
             security_enabled=not args.disable_security,
+            v2g_rate=args.v2g_rate or 0.0,
+            rl_episodes=args.rl_episodes,
         )
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         with open(args.out, "w", newline="") as output_file:
@@ -148,8 +164,15 @@ def main():
     cfg.telemetry_attack_type = args.attack_type
     cfg.telemetry_attack_probability = args.attack_probability
     cfg.telemetry_security_enabled = not args.disable_security
+    if args.v2g_rate is not None:
+        cfg.v2g_participation_rate = max(0.0, min(1.0, args.v2g_rate))
+    cfg.rl_training_episodes = max(0, args.rl_episodes)
 
     controller = CONTROLLERS[args.controller]()
+    if args.controller == "q_learning":
+        controller.epsilon = cfg.rl_epsilon
+        controller.train(cfg, episodes=cfg.rl_training_episodes)
+        controller.set_evaluation_mode()
     sim = Simulation(cfg, controller)
     summary = sim.run(verbose=args.verbose)
 

@@ -12,6 +12,8 @@ from ev_digital_twin.baseline_controller import (
     HybridPSONSGAIIController,
 )
 from main import run_scenario_comparison, run_stress_sweep
+from ev_digital_twin.v2g_controller import MultiAgentV2GController
+from ev_digital_twin.rl_controller import QLearningController
 
 
 def make_cfg():
@@ -153,6 +155,48 @@ def test_power_spike_attack_is_detected():
     assert summary["telemetry_alerts"] > 0
     assert summary["high_severity_telemetry_alerts"] > 0
     assert any(alert["type"] == "invalid_power_kw" for alert in sim.security_alert_log)
+
+
+def test_multi_agent_v2g_exports_energy_without_breaching_reserve():
+    cfg = make_cfg()
+    cfg.num_evs = 12
+    cfg.num_stations = 12
+    cfg.ev_arrival_hour_range = (0.0, 0.0)
+    cfg.grid_base_load_mw = 11.0
+    cfg.grid_capacity_mw = 12.0
+    cfg.v2g_participation_rate = 1.0
+    cfg.v2g_support_threshold = 0.5
+    cfg.horizon_hours = 1
+    sim = Simulation(cfg, MultiAgentV2GController())
+    summary = sim.run()
+    assert summary["total_v2g_energy_exported_kwh"] > 0.0
+    assert all(record["final_soc"] >= cfg.v2g_reserve_soc
+               for record in sim.twin.departed_log)
+
+
+def test_non_v2g_evs_cannot_export_energy():
+    cfg = make_cfg()
+    cfg.num_evs = 8
+    cfg.ev_arrival_hour_range = (0.0, 0.0)
+    cfg.grid_base_load_mw = 11.0
+    cfg.grid_capacity_mw = 12.0
+    cfg.v2g_participation_rate = 0.0
+    summary = Simulation(cfg, MultiAgentV2GController()).run()
+    assert summary["total_v2g_energy_exported_kwh"] == 0.0
+
+
+def test_q_learning_controller_trains_and_runs():
+    cfg = make_cfg()
+    cfg.num_evs = 8
+    cfg.horizon_hours = 2
+    controller = QLearningController(seed=5, epsilon=0.3)
+    history = controller.train(cfg, episodes=2)
+    controller.set_evaluation_mode()
+    summary = Simulation(cfg, controller).run()
+    assert len(history) == 2
+    assert controller.q_table
+    assert summary["evs_departed"] >= 0
+    assert controller.epsilon == 0.0
 
 
 if __name__ == "__main__":

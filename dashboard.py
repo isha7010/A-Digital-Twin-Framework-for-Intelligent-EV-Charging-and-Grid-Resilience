@@ -12,10 +12,12 @@ the resulting metrics.
 """
 
 import random
+import html
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from ev_digital_twin.scenarios import SCENARIOS, build_config, randomize_inputs
 from ev_digital_twin.simulation import Simulation
@@ -26,6 +28,9 @@ from ev_digital_twin.baseline_controller import (
     NSGAIIController,
     HybridPSONSGAIIController,
 )
+from ev_digital_twin.v2g_controller import MultiAgentV2GController
+from ev_digital_twin.rl_controller import QLearningController
+from ev_digital_twin.realtime_runner import RealtimeRunner
 
 GREEN_DARK = "#173404"
 GREEN_MID = "#3B6D11"
@@ -39,7 +44,71 @@ CONTROLLERS = {
     "pso": PSOController,
     "nsga2": NSGAIIController,
     "hybrid_pso_nsga2": HybridPSONSGAIIController,
+    "multi_agent_v2g": MultiAgentV2GController,
+    "q_learning": QLearningController,
 }
+
+
+def render_live_state(snapshot: dict) -> str:
+    """Render four live station-layout grids as self-contained SVG/HTML."""
+    state = snapshot.get("state", {})
+    grid = state.get("grid", {})
+    stations = state.get("stations", [])
+    evs = state.get("evs", [])
+    width, height = 470, 245
+    capacity = max(grid.get("capacity_mw", 1.0), 0.001)
+    load = max(grid.get("net_load_mw", 0.0), 0.0)
+    load_ratio = min(1.0, load / capacity)
+    meter_color = "#b42318" if load_ratio >= 1.0 else "#3B6D11"
+    groups = [[] for _ in range(4)]
+    for index, station in enumerate(stations):
+        groups[index % 4].append(station)
+    ev_by_station = {}
+    for ev in evs:
+        ev_by_station.setdefault(ev.get("station"), []).append(ev)
+    colors = {"charging": "#639922", "v2g_discharging": "#b42318", "idle": "#64748b"}
+    panels = []
+    for group_index, group in enumerate(groups):
+        station_shapes = []
+        ev_shapes = []
+        for station_index, station in enumerate(group):
+            x = 16 + (station_index % 2) * 220
+            y = 34 + (station_index // 2) * 82
+            station_shapes.append(
+                f'<rect x="{x}" y="{y}" width="190" height="58" rx="6" '
+                f'fill="#EAF3DE" stroke="#639922"/><text x="{x + 8}" y="{y + 17}" '
+                f'font-size="11" fill="#173404">{html.escape(station["station_id"])}</text>'
+            )
+            for connector in range(4):
+                ev_id = station.get("occupancy", {}).get(connector)
+                ev = next((item for item in evs if item.get("ev_id") == ev_id), None)
+                color = colors.get(ev.get("state"), "#64748b") if ev else "#cbd5e1"
+                fill_height = max(2, min(24, ev.get("soc", 0.0) * 24)) if ev else 0
+                ev_x = x + 12 + connector * 28
+                ev_y = y + 28
+                ev_shapes.append(
+                    f'<rect x="{ev_x}" y="{ev_y + 24 - fill_height}" width="12" height="{fill_height}" fill="{color}"/>'
+                    f'<rect x="{ev_x}" y="{ev_y}" width="12" height="24" fill="none" stroke="{color}"/>'
+                )
+        panels.append(
+            f'<div style="width:100%;min-width:0;overflow:hidden;">'
+            f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" aria-label="Station grid {group_index + 1}">'
+            f'<rect width="{width}" height="{height}" fill="#ffffff"/> '
+            f'<text x="16" y="20" font-size="13" font-weight="600" fill="#173404">Station grid {group_index + 1}</text>'
+            f'{"".join(station_shapes)}{"".join(ev_shapes)}</svg></div>'
+        )
+    return f"""
+    <div style='font-family:sans-serif;color:#173404'>
+      <div style='font-size:14px;margin-bottom:6px'>Live station layouts · t={state.get('time_h', 0):.2f}h</div>
+      <div style='font-size:12px;margin-bottom:8px'>Net load {load:.2f} / {capacity:.2f} MW · Solar {grid.get('solar_mw', 0.0):.2f} MW · V2G export {grid.get('v2g_export_mw', 0.0):.2f} MW</div>
+      <div style='height:8px;background:#e2e8f0;border-radius:4px;margin-bottom:8px'>
+        <div style='width:{100 * load_ratio:.1f}%;height:8px;background:{meter_color};border-radius:4px'></div>
+      </div>
+            <div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;width:100%'>
+                {''.join(panels)}
+            </div>
+    </div>
+    """
 
 st.set_page_config(page_title="EV Digital Twin Dashboard", layout="wide")
 
@@ -78,7 +147,11 @@ if "inputs" not in st.session_state:
         "attack_type": "none",
         "attack_probability": 0.0,
         "security_enabled": True,
+        "v2g_rate": 0.0,
+        "rl_episodes": 0,
     }
+if "realtime_runner" not in st.session_state:
+    st.session_state.realtime_runner = None
 
 # --------------------------------------------------------------- sidebar ----
 with st.sidebar:
@@ -95,6 +168,8 @@ with st.sidebar:
             "attack_type": "none",
             "attack_probability": 0.0,
             "security_enabled": True,
+            "v2g_rate": 0.0,
+            "rl_episodes": 0,
         }
 
     st.divider()
@@ -117,6 +192,8 @@ with st.sidebar:
         "Attack probability", 0.0, 1.0, float(inputs["attack_probability"]), step=0.05,
     )
     security_enabled = st.checkbox("Enable telemetry security", value=inputs["security_enabled"])
+    v2g_rate = st.slider("V2G participation", 0.0, 1.0, float(inputs["v2g_rate"]), step=0.05)
+    rl_episodes = st.number_input("RL training episodes", min_value=0, max_value=50, value=int(inputs["rl_episodes"]), step=1)
 
     st.session_state.inputs = {
         "mode": "manual",
@@ -127,6 +204,8 @@ with st.sidebar:
         "attack_type": attack_type,
         "attack_probability": attack_probability,
         "security_enabled": security_enabled,
+        "v2g_rate": v2g_rate,
+        "rl_episodes": rl_episodes,
     }
 
     st.divider()
@@ -136,6 +215,45 @@ with st.sidebar:
         default=["uncontrolled", "edf"],
     )
     run_clicked = st.button("▶ Run simulation", type="primary", use_container_width=True)
+    live_controller = st.selectbox("Live controller", list(CONTROLLERS.keys()), index=0)
+    start_live = st.button("Start real-time simulation", use_container_width=True)
+    stop_live = st.button("Stop real-time simulation", use_container_width=True)
+
+    if start_live:
+        live_cfg = build_config(
+            inputs["scenario_name"],
+            base_num_evs=inputs["base_num_evs"],
+            seed=inputs["seed"],
+        )
+        live_cfg.horizon_hours = inputs["horizon_hours"]
+        live_cfg.v2g_participation_rate = inputs["v2g_rate"]
+        live_cfg.telemetry_attack_type = inputs["attack_type"]
+        live_cfg.telemetry_attack_probability = inputs["attack_probability"]
+        live_cfg.telemetry_security_enabled = inputs["security_enabled"]
+        live_controller_instance = CONTROLLERS[live_controller]()
+        if live_controller == "q_learning":
+            live_controller_instance.train(live_cfg, episodes=int(inputs["rl_episodes"]))
+            live_controller_instance.set_evaluation_mode()
+        st.session_state.realtime_runner = RealtimeRunner(
+            live_cfg, live_controller_instance, tick_seconds=1.0,
+        )
+        st.session_state.realtime_runner.start()
+    if stop_live and st.session_state.realtime_runner is not None:
+        st.session_state.realtime_runner.stop()
+
+    if st.session_state.realtime_runner is not None:
+        pending_cfg = build_config(
+            scenario_name, base_num_evs=base_num_evs, seed=seed,
+        )
+        st.session_state.realtime_runner.queue_changes(
+            controller=CONTROLLERS[live_controller](),
+            v2g_rate=v2g_rate,
+            config={
+                "grid_capacity_mw": pending_cfg.grid_capacity_mw,
+                "solar_capacity_mw": pending_cfg.solar_capacity_mw,
+                "ev_arrival_hour_range": pending_cfg.ev_arrival_hour_range,
+            },
+        )
 
 # ------------------------------------------------------------- run sims ----
 inputs = st.session_state.inputs
@@ -144,6 +262,22 @@ st.markdown(
     f"**EVs:** {inputs['base_num_evs']}  |  **Horizon:** {inputs['horizon_hours']}h  |  "
     f"**Seed:** {inputs['seed']}  |  **Source:** {'randomized' if inputs['mode'] == 'random' else 'manual'}"
 )
+
+
+@st.fragment(run_every="1s")
+def render_realtime_panel():
+    st.subheader("Live digital twin")
+    runner = st.session_state.realtime_runner
+    if runner is None:
+        st.info("Start a real-time simulation from the sidebar to view live state.")
+        return
+    snapshot = runner.snapshot()
+    components.html(render_live_state(snapshot), height=410, scrolling=False)
+    status = "running" if snapshot["running"] else "stopped"
+    st.caption(f"Status: {status} · step {snapshot['current_step']} · time {snapshot['sim_time_h']:.2f}h")
+
+
+render_realtime_panel()
 
 if run_clicked or "last_results" not in st.session_state:
     if not controller_choices:
@@ -161,7 +295,11 @@ if run_clicked or "last_results" not in st.session_state:
         cfg.telemetry_attack_type = inputs["attack_type"]
         cfg.telemetry_attack_probability = inputs["attack_probability"]
         cfg.telemetry_security_enabled = inputs["security_enabled"]
+        cfg.v2g_participation_rate = inputs["v2g_rate"]
         controller = CONTROLLERS[name]()
+        if name == "q_learning":
+            controller.train(cfg, episodes=int(inputs["rl_episodes"]))
+            controller.set_evaluation_mode()
         sim = Simulation(cfg, controller)
         summary = sim.run()
         results[name] = {
@@ -188,6 +326,7 @@ for col, (name, r) in zip(cols, results.items()):
             ("% met required SOC", "pct_evs_met_required_soc", "{:.1f}"),
             ("Telemetry alerts", "telemetry_alerts", "{:d}"),
             ("High-severity alerts", "high_severity_telemetry_alerts", "{:d}"),
+            ("V2G exported (kWh)", "total_v2g_energy_exported_kwh", "{:.1f}"),
         ]:
             val = s.get(key, 0)
             st.markdown(
