@@ -59,6 +59,7 @@ class RealtimeState:
         self.current_step = 0
         self.pending_changes = {}
         self.last_summary = {}
+        self.error = None
 
     def snapshot(self):
         with self.lock:
@@ -67,6 +68,7 @@ class RealtimeState:
                 "current_step": self.current_step,
                 "sim_time_h": self.twin.sim_time_h,
                 "summary": dict(self.last_summary),
+                "error": self.error,
                 "state": _snapshot_twin(self.twin),
             }
 
@@ -146,20 +148,26 @@ class RealtimeRunner:
     def _run_loop(self):
         with self.state.lock:
             self.state.running = True
-        while not self._stop_event.is_set():
-            if not self.tick():
-                break
-            if self._stop_event.wait(self.tick_seconds):
-                break
-        with self.state.lock:
-            self.state.running = False
-            self.state.last_summary = self.state.metrics.summary(self.state.twin)
+        try:
+            while not self._stop_event.is_set():
+                if not self.tick():
+                    break
+                if self._stop_event.wait(self.tick_seconds):
+                    break
+        except Exception as exc:
+            with self.state.lock:
+                self.state.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            with self.state.lock:
+                self.state.running = False
+                self.state.last_summary = self.state.metrics.summary(self.state.twin)
 
     def start(self):
         with self.state.lock:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop_event.clear()
+            self.state.error = None
             self._thread = threading.Thread(target=self._run_loop, name="ev-digital-twin", daemon=True)
             self._thread.start()
 

@@ -24,9 +24,23 @@ The platform answers questions such as:
 
 ## Roadmap Status
 
-Phases 1 through 9 are implemented as working prototypes. Phases 10 and 11
-are currently in progress. Phase 12 is optional follow-up work for dashboard
-polish, packaging, and deployment automation.
+Phases 1 through 12 are implemented for academic demonstration. The project
+is packaged for local Docker use; it is not intended as a production service.
+
+## Project Completion Status
+
+**Project complete for the agreed academic scope.**
+
+All planned phases are implemented and validated, including the digital twin,
+charging controllers, optimization prototypes, scenario stress testing,
+telemetry security, V2G, Q-learning, real-time execution, live SVG/HTML
+visualization, CSV reporting, and local Docker packaging. The full regression
+suite passes with 23 tests.
+
+The generated results are reproducible simulation outputs based on synthetic
+EV, grid, renewable, telemetry, and attack conditions. They are suitable for
+academic comparison and demonstration, but are not measurements from a
+physical charging system or a production grid.
 
 ```
 Digital Twin -> baseline -> PSO -> NSGA-II -> hybrid PSO-NSGA-II
@@ -92,6 +106,18 @@ pip install -r requirements.txt
 The simulation and controllers use the Python standard library. Streamlit,
 Pandas, and Matplotlib are used by the dashboard. No Gymnasium,
 Stable-Baselines3, or external optimization package is required.
+
+### Docker demonstration
+
+Build and run the academic dashboard locally:
+
+```bash
+docker build -t ev-digital-twin .
+docker run --rm -p 8501:8501 ev-digital-twin
+```
+
+Open `http://localhost:8501` in a browser. This image is intended for local
+academic demonstration and experimentation, not production deployment.
 
 ## Basic CLI Usage
 
@@ -245,8 +271,9 @@ compatibility of the public comparison helpers.
   intended for reproducible comparison rather than production-scale optimization.
 - Controllers currently observe the digital twin directly; telemetry security
   is implemented as an observability and validation layer.
-- Phase 12 is optional follow-up work for deployment packaging, richer visualizations,
-  automated reports, and production hardening.
+- Phase 12 provides academic-scope Docker packaging, richer visualizations,
+  automated CSV reports, and local execution documentation; production
+  deployment hardening is outside the project scope.
 
 ## Phase-wise Project Status
 
@@ -313,30 +340,31 @@ compatibility of the public comparison helpers.
 - charging and V2G action support
 - CLI, dashboard, and stress-sweep registration
 
-### Phase 10 — Real-time simulation engine: in progress
+### Phase 10 — Real-time simulation engine: completed
 - background-thread tick loop around the existing digital twin and controller
 - thread-safe live state with twin, controller, metrics, running flag, and step
 - tick-boundary application of controller, V2G, and scenario changes
 - deterministic comparison with the existing batch simulation
-- `tests/test_realtime.py` coverage for real-time determinism
+- `tests/test_realtime.py` coverage for real-time determinism and live status
+- explicit background-thread error state exposed through snapshots
 
-### Phase 11 — Live SVG/HTML visual layer: in progress
+### Phase 11 — Live SVG/HTML visual layer: completed
 - live EV, station, and grid state rendered with inline SVG/HTML
 - one-second Streamlit fragment updates without resetting sidebar state
 - pure rendering layer driven by `DigitalTwin.get_state_snapshot()`
 - 16 stations displayed as four 2x2 station grids
 - four connector slots rendered for every station
+- live capacity utilization, controller state, EV count, V2G, and error status
+- renderer tests independent of Streamlit startup
 
-### Phase 12 — Final dashboard / deployment: optional follow-up
-- richer dashboard visualizations
-- automated benchmark reports
-- packaging and deployment workflow
-- production hardening and operational documentation
+### Phase 12 — Final dashboard / academic packaging: completed
+- richer dashboard visualizations with CSV summary download
+- reusable CSV report writer for simulation and benchmark outputs
+- Docker packaging for local academic demonstration
+- input validation in report generation and explicit report errors
+- academic-use and local execution documentation
 
 ## Recommended Next Steps
 
-The current focus is completing Phases 10 and 11: real-time background
-execution and live visual state rendering. Phase 12 remains optional follow-up
-work for richer dashboard polish, benchmark automation, packaging, and
-deployment documentation.
-
+Phases 10, 11, and 12 are complete for the agreed academic scope. Further work
+would be optional research enhancement rather than required project completion.

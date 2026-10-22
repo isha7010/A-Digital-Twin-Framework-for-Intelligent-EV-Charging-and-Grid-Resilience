@@ -43,3 +43,12 @@ def test_pending_controller_change_applies_at_tick_boundary():
     assert runner.state.twin.cfg.grid_capacity_mw == 8.0
     assert runner.state.twin.grid.capacity_mw == 8.0
     runner.stop()
+
+
+def test_realtime_snapshot_exposes_clean_runner_status():
+    runner = RealtimeRunner(make_realtime_cfg(), EarliestDeadlineFirstController(), tick_seconds=0.001)
+    assert runner.tick()
+    snapshot = runner.snapshot()
+    assert snapshot["error"] is None
+    assert snapshot["current_step"] == 1
+    runner.stop()

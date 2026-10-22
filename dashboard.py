@@ -12,8 +12,6 @@ the resulting metrics.
 """
 
 import random
-import html
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
@@ -31,6 +29,7 @@ from ev_digital_twin.baseline_controller import (
 from ev_digital_twin.v2g_controller import MultiAgentV2GController
 from ev_digital_twin.rl_controller import QLearningController
 from ev_digital_twin.realtime_runner import RealtimeRunner
+from ev_digital_twin.live_view import render_live_state
 
 GREEN_DARK = "#173404"
 GREEN_MID = "#3B6D11"
@@ -48,67 +47,6 @@ CONTROLLERS = {
     "q_learning": QLearningController,
 }
 
-
-def render_live_state(snapshot: dict) -> str:
-    """Render four live station-layout grids as self-contained SVG/HTML."""
-    state = snapshot.get("state", {})
-    grid = state.get("grid", {})
-    stations = state.get("stations", [])
-    evs = state.get("evs", [])
-    width, height = 470, 245
-    capacity = max(grid.get("capacity_mw", 1.0), 0.001)
-    load = max(grid.get("net_load_mw", 0.0), 0.0)
-    load_ratio = min(1.0, load / capacity)
-    meter_color = "#b42318" if load_ratio >= 1.0 else "#3B6D11"
-    groups = [[] for _ in range(4)]
-    for index, station in enumerate(stations):
-        groups[index % 4].append(station)
-    ev_by_station = {}
-    for ev in evs:
-        ev_by_station.setdefault(ev.get("station"), []).append(ev)
-    colors = {"charging": "#639922", "v2g_discharging": "#b42318", "idle": "#64748b"}
-    panels = []
-    for group_index, group in enumerate(groups):
-        station_shapes = []
-        ev_shapes = []
-        for station_index, station in enumerate(group):
-            x = 16 + (station_index % 2) * 220
-            y = 34 + (station_index // 2) * 82
-            station_shapes.append(
-                f'<rect x="{x}" y="{y}" width="190" height="58" rx="6" '
-                f'fill="#EAF3DE" stroke="#639922"/><text x="{x + 8}" y="{y + 17}" '
-                f'font-size="11" fill="#173404">{html.escape(station["station_id"])}</text>'
-            )
-            for connector in range(4):
-                ev_id = station.get("occupancy", {}).get(connector)
-                ev = next((item for item in evs if item.get("ev_id") == ev_id), None)
-                color = colors.get(ev.get("state"), "#64748b") if ev else "#cbd5e1"
-                fill_height = max(2, min(24, ev.get("soc", 0.0) * 24)) if ev else 0
-                ev_x = x + 12 + connector * 28
-                ev_y = y + 28
-                ev_shapes.append(
-                    f'<rect x="{ev_x}" y="{ev_y + 24 - fill_height}" width="12" height="{fill_height}" fill="{color}"/>'
-                    f'<rect x="{ev_x}" y="{ev_y}" width="12" height="24" fill="none" stroke="{color}"/>'
-                )
-        panels.append(
-            f'<div style="width:100%;min-width:0;overflow:hidden;">'
-            f'<svg viewBox="0 0 {width} {height}" width="100%" role="img" aria-label="Station grid {group_index + 1}">'
-            f'<rect width="{width}" height="{height}" fill="#ffffff"/> '
-            f'<text x="16" y="20" font-size="13" font-weight="600" fill="#173404">Station grid {group_index + 1}</text>'
-            f'{"".join(station_shapes)}{"".join(ev_shapes)}</svg></div>'
-        )
-    return f"""
-    <div style='font-family:sans-serif;color:#173404'>
-      <div style='font-size:14px;margin-bottom:6px'>Live station layouts · t={state.get('time_h', 0):.2f}h</div>
-      <div style='font-size:12px;margin-bottom:8px'>Net load {load:.2f} / {capacity:.2f} MW · Solar {grid.get('solar_mw', 0.0):.2f} MW · V2G export {grid.get('v2g_export_mw', 0.0):.2f} MW</div>
-      <div style='height:8px;background:#e2e8f0;border-radius:4px;margin-bottom:8px'>
-        <div style='width:{100 * load_ratio:.1f}%;height:8px;background:{meter_color};border-radius:4px'></div>
-      </div>
-            <div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;width:100%'>
-                {''.join(panels)}
-            </div>
-    </div>
-    """
 
 st.set_page_config(page_title="EV Digital Twin Dashboard", layout="wide")
 
@@ -365,3 +303,10 @@ st.pyplot(fig2)
 st.subheader("Per-controller metrics table")
 summary_table = pd.DataFrame({name: r["summary"] for name, r in results.items()}).T
 st.dataframe(summary_table, use_container_width=True)
+st.download_button(
+    "Download summary report (CSV)",
+    data=summary_table.to_csv(index=True),
+    file_name="ev_digital_twin_summary.csv",
+    mime="text/csv",
+    use_container_width=True,
+)

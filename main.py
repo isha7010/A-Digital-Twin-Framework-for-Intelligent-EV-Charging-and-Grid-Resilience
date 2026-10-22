@@ -15,9 +15,6 @@ phase of the recommended build order in the project spec:
 """
 
 import argparse
-import csv
-import os
-
 from ev_digital_twin.config import SimulationConfig
 from ev_digital_twin.scenarios import SCENARIOS, build_config
 from ev_digital_twin.simulation import Simulation
@@ -30,6 +27,7 @@ from ev_digital_twin.baseline_controller import (
 )
 from ev_digital_twin.v2g_controller import MultiAgentV2GController
 from ev_digital_twin.rl_controller import QLearningController
+from ev_digital_twin.reports import write_csv_report
 
 
 CONTROLLERS = {
@@ -146,11 +144,7 @@ def main():
             v2g_rate=args.v2g_rate or 0.0,
             rl_episodes=args.rl_episodes,
         )
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        with open(args.out, "w", newline="") as output_file:
-            writer = csv.DictWriter(output_file, fieldnames=rows[0].keys())
-            writer.writeheader()
-            writer.writerows(rows)
+        write_csv_report(args.out, rows)
         print(f"Stress sweep completed: {len(rows)} runs written to {args.out}")
         return
 
@@ -180,12 +174,8 @@ def main():
     for k, v in summary.items():
         print(f"  {k}: {v}")
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
     if sim.metrics.rows:
-        with open(args.out, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=sim.metrics.rows[0].keys())
-            writer.writeheader()
-            writer.writerows(sim.metrics.rows)
+        write_csv_report(args.out, sim.metrics.rows)
         print(f"\nPer-step metrics written to {args.out}")
 
 
